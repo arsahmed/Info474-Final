@@ -2,53 +2,64 @@
 
 (function() {
 
-  let data = ""; // keep data in global scope
-  let svgContainer = ""; // keep SVG reference in global scope
+  let data = "";
+  let dataArtist = "";
+  let svgContainer = "";
   let selectedPopularity = "";
+  let svgTooltip = "";
+  let tooltipDiv = "";
 
-  // load data and make scatter plot after window loads
   window.onload = function() {
     svgContainer = d3.select('body')
       .append('svg')
       .attr('width', 1000)
       .attr('height', 620);
-    // d3.csv is basically fetch but it can be be passed a csv file as a parameter
+ 
     d3.csv("./data/popularity.csv")
       .then((csvData) => {
         data = csvData;
         let popularities = [];
 
-        // Loop through and get the unique values for the year
-        data.forEach(row => {
+         data.forEach(row => {
           let popularity = (row["popularity"])
           if (popularities.indexOf(popularity) == -1) {
             popularities.push(popularity)
           }
         });
 
-        // Sort so that the dropdown is alphabetical
         popularities.sort()
         selectedPopularity = popularities[0];
 
-        // Create a dropdown menu
+
         addDropdown(popularities);
         makeBarChart(data)
-      });
+
+        tooltipDiv = d3.select("body").append("div")
+        .attr("class", "tooltip")
+        .style("opacity", 0)
+
+        svgTooltip = tooltipDiv.append('svg')
+        .attr('width', 350)
+        .attr('height', 260);
+
+      }),
+
+      d3.csv("./data/artists.csv")
+      .then((csvDataArtist) => {
+        dataArtist = csvDataArtist;
+        makeTooltipChart(dataArtist);
+      })
   }
 
-    // Adds the dropdown menu with the years onto the svg
     function addDropdown(popularity_data) {
 
-      // Append the dropdown to the SVG
       let dropdown = d3.select('select')
   
-      // Append the options to the dropdown
       dropdown.selectAll('option')
         .data(popularity_data).enter()
         .append('option')
           .text(d => d)
           
-      // Remove current points and redraw the scatter plot
       dropdown.on('change', function(){
         selectedPopularity = d3.select('select').property('value');
         makeBarChart();
@@ -56,28 +67,22 @@
   
     }
 
-  // make bar chart with avg line
   function makeBarChart() {
     svgContainer.html("");
 
-    // get an array of gre year and an array of chance of views
     let popularityData = data.filter((row) => row["popularity"] == selectedPopularity);
     let genre = popularityData.map((row) => parseInt(row["index"]));
     let tracks = popularityData.map((row) => parseInt(row["tracks"]));
 
     let axesLimits = findMinMax(genre, tracks);
 
-    // draw axes with ticks and return mapping and scaling functions
     let mapFunctions = drawTicks(axesLimits);
 
-    // plot the data using the mapping and scaling functions
     plotData(mapFunctions, popularityData);
 
-	// make lables for the axis
 	makeLabels();
   }
 
-  // plot all the data points on the SVG
   function plotData(map, popularityData) {
     let xMap = map.x;
     let yMap = map.y;
@@ -90,7 +95,6 @@
       .attr("fill", "#eaf2f8")
       .attr("opacity", '0.5');
 
-    // append data to SVG and plot as points
     svgContainer.selectAll('.dot')
       .data(popularityData)
       .enter()
@@ -102,27 +106,70 @@
         .attr('fill', "#2a5396")
         .attr('stroke-width', '1')
         .attr('stroke', 'rgb(47,79,79)')
-        .attr("opacity", 0.9)	
+        .attr("opacity", 0.9)
+
+        .on("mouseover", (d) => {
+          tooltipDiv.transition()
+            .duration(200)
+            .style("opacity", 1)
+            .style("left", (d3.event.pageX) + "px")
+            .style("top", (d3.event.pageY - 28) + "px");
+
+        })
+        .on("mouseout", (d) => {
+          tooltipDiv.transition()
+            .duration(500)
+            .style("opacity", 0);
+        });
   }
 
-  // draw the axes and ticks
-  function drawTicks(limits) {
-    // return year from a row of data
-    let xValue = function(d) { return +d["index"]; }
-    let xLabel = function(d) { return +d["genre"]; }
+  function makeTooltipChart() {
 
-    // function to scale year
+    let genre = dataArtist.map((row) => parseInt(row["index"]));
+    let artists = dataArtist.map((row) => parseInt(row["artists"]));
+
+    let axesLimits = findTooltipMinMax(genre, artists);
+
+    let mapFunctions = drawTooltipTicks(axesLimits);
+
+    plotTooltipData(mapFunctions);
+
+    svgTooltip.append('text')
+    .attr('x', 90)
+    .attr('y', 20)
+    .style('font-size', '12pt')
+    .text("Spotify Artists By Genre");
+  }
+
+  function plotTooltipData(map) {
+    let xMap = map.x;
+    let yMap = map.y;
+
+    svgTooltip.selectAll('.dot')
+      .data(dataArtist)
+      .enter()
+      .append('rect')
+        .attr('x', xMap)
+        .attr('y', yMap)
+  	  	.attr('width', '8')
+	  	  .attr('height', (d) => 180 - yMap(d))
+        .attr('fill', "#771010")
+        .attr('stroke-width', '1')
+        .attr("opacity", 0.9)
+  }
+
+  function drawTicks(limits) {
+    let xValue = function(d) { return +d["index"]; }
+
     let xScale = d3.scaleLinear()
       .domain([limits.genreMin, limits.genreMax + 1]) // give domain buffer room
       .range([85, 850]);
 
-    // xMap returns a scaled x value from a row of data
     let xMap = function(d) { return xScale(xValue(d)); };
     let tickLabels = ['A Capella','Alternative','Anime','Blues','Children Music','Classical','Comedy',
     'Country','Dance','Electronic','Folk','Hip-Hop','Indie','Jazz','Movie','Opera',
     'Pop','R&B','Rap','Reggae','Reggaeton','Rock','Ska','Soul','Soundtrack','World']
 
-    // plot x-axis at bottom of SVG
     let xAxis = d3.axisBottom().scale(xScale)
         .ticks(26)
         .tickFormat(function(d,i){ return tickLabels[i]});
@@ -135,24 +182,19 @@
         .attr("dx", "-0.5em")
         .attr("transform", "rotate(-90)");
 
-    // return views from a row of data
     let yValue = function(d) { return +d["tracks"]}
 
-    // function to scale views
     let yScale = d3.scaleLinear()
       .domain([limits.tracksMax + 1, limits.tracksMin - 0.05]) // give domain buffer
       .range([50, 450]);
 
-    // yMap returns a scaled y value from a row of data
     let yMap = function (d) { return yScale(yValue(d)); };
 
-    // plot y-axis at the left of SVG
     let yAxis = d3.axisLeft().scale(yScale);
     svgContainer.append('g')
       .attr('transform', 'translate(80, 0)')
       .call(yAxis);
 
-    // return mapping and scaling functions
     return {
       x: xMap,
       y: yMap,
@@ -161,26 +203,66 @@
     };
   }
 
-  // find min and max for year and views
+  function drawTooltipTicks(limits) {
+    let xValue = function(d) { return +d["index"]; }
+
+    let xScale = d3.scaleLinear()
+      .domain([limits.genreMin, limits.genreMax + 1]) // give domain buffer room
+      .range([40, 340]);
+
+    let xMap = function(d) { return xScale(xValue(d)); };
+    let tickLabels = ['A Capella','Alternative','Anime','Blues','Children Music','Classical','Comedy',
+    'Country','Dance','Electronic','Folk','Hip-Hop','Indie','Jazz','Movie','Opera',
+    'Pop','R&B','Rap','Reggae','Reggaeton','Rock','Ska','Soul','Soundtrack','World']
+
+    let xAxis = d3.axisBottom().scale(xScale)
+        .ticks(26)
+        .tickFormat(function(d,i){ return tickLabels[i]});
+
+    svgTooltip.append("g")
+      .attr('transform', 'translate(0, 180)')
+      .call(xAxis)
+      .selectAll("text")
+        .style('text-anchor', 'end')
+        .attr("dx", "-0.5em")
+        .attr("transform", "rotate(-90)");
+
+    let yValue = function(d) { return +d["artists"]}
+
+    let yScale = d3.scaleLinear()
+      .domain([limits.artistsMax + 1, limits.artistsMin - 0.05]) // give domain buffer
+      .range([30, 180]);
+
+    let yMap = function (d) { return yScale(yValue(d)); };
+
+    let yAxis = d3.axisLeft().scale(yScale);
+    svgTooltip.append('g')
+      .attr('transform', 'translate(40, 0)')
+      .call(yAxis);
+
+    return {
+      x: xMap,
+      y: yMap,
+      xScale: xScale,
+      yScale: yScale
+    };
+  }
+
+
   function findMinMax(genre, tracks) {
 
-    // get min/max year
     let genreMin = d3.min(genre);
     let genreMax = d3.max(genre);
 
-    // round x-axis limits
     genreMax = Math.round(genreMax*10)/10;
     genreMin = Math.round(genreMin*10)/10;
 
-    // get min/max views
     let tracksMin = 0;
     let tracksMax = d3.max(tracks);
 
-    // round y-axis limits to nearest 0.05
     tracksMax = Number((Math.ceil(tracksMax*20)/20).toFixed(2));
     tracksMin = Number((Math.ceil(tracksMin*20)/20).toFixed(2));
 
-    // return formatted min/max data as an object
     return {
       genreMin : genreMin,
       genreMax : genreMax,
@@ -188,8 +270,29 @@
       tracksMax : tracksMax
     }
   }
+
+  function findTooltipMinMax(genre, artists) {
+
+    let genreMin = d3.min(genre);
+    let genreMax = d3.max(genre);
+
+    genreMax = Math.round(genreMax*10)/10;
+    genreMin = Math.round(genreMin*10)/10;
+
+    let artistsMin = 0;
+    let artistsMax = d3.max(artists);
+
+    artistsMax = Number((Math.ceil(artistsMax*20)/20).toFixed(2));
+    artistsMin = Number((Math.ceil(artistsMin*20)/20).toFixed(2));
+
+    return {
+      genreMin : genreMin,
+      genreMax : genreMax,
+      artistsMin : artistsMin,
+      artistsMax : artistsMax
+    }
+  }
   
-  // function that makes the lables
   function makeLabels() {
     svgContainer.append('text')
       .attr('x', 50)
